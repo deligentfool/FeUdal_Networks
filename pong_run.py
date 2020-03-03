@@ -6,16 +6,15 @@ import random
 from net import feudal_networks
 from replay_buffer import replay_buffer
 import gym
+from common.wrappers import make_atari, wrap_deepmind, wrap_pytorch
 
 
 class feudal_model(object):
-    def __init__(self, env, capacity, update_freq, episode, feature_dim, k_dim, dilation, horizon_c, learning_rate, alpha, gamma, entropy_weight, render):
+    def __init__(self, env, capacity, episode, feature_dim, k_dim, dilation, horizon_c, learning_rate, alpha, gamma, entropy_weight, render):
         # * feature_dim >> k_dim
         # * dilation == horizon_c
-        # * capacity <= update_freq
         self.env = env
         self.capacity = capacity
-        self.update_freq = update_freq
         self.episode = episode
         self.feature_dim = feature_dim
         self.k_dim = k_dim
@@ -27,9 +26,9 @@ class feudal_model(object):
         self.entropy_weight = entropy_weight
         self.render = render
 
-        self.observation_dim = self.env.observation_space.shape[0]
+        self.observation_dim = self.env.observation_space.shape
         self.action_dim = self.env.action_space.n
-        self.net = feudal_networks(self.observation_dim, self.feature_dim, self.k_dim, self.action_dim, self.dilation, self.horizon_c)
+        self.net = feudal_networks(self.observation_dim, self.feature_dim, self.k_dim, self.action_dim, self.dilation, self.horizon_c, conv=True)
         self.buffer = replay_buffer(self.capacity)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
         self.h_m = torch.zeros([1, self.feature_dim])
@@ -137,31 +136,30 @@ class feudal_model(object):
                 self.buffer.store(obs, mstate, goal, m_value, policy, w_value_int, w_value_ext, reward, done, action)
                 obs = next_obs
 
-                if self.count % self.update_freq == 0:
-                    self.train()
-
                 if done:
+                    self.train()
                     if not self.weight_reward:
                         self.weight_reward = total_reward
                     else:
                         self.weight_reward = 0.99 * self.weight_reward + 0.01 * total_reward
+                    self.buffer.clear()
                     print('episode: {}  reward: {}  weight_reward: {:.2f}'.format(i + 1, total_reward, self.weight_reward))
                     break
 
 
 if __name__ == '__main__':
-    env = gym.make('CartPole-v0')
-    env = env.unwrapped
+    env = make_atari('PongNoFrameskip-v4')
+    env = wrap_deepmind(env)
+    env = wrap_pytorch(env)
     test = feudal_model(
         env=env,
-        capacity=200,
-        update_freq=200,
+        capacity=50000,
         episode=10000,
         feature_dim=256,
         k_dim=16,
         dilation=10,
         horizon_c=10,
-        learning_rate=1e-4,
+        learning_rate=5e-4,
         alpha=0.5,
         gamma=0.99,
         entropy_weight=1e-4,

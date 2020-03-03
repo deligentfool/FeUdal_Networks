@@ -6,20 +6,37 @@ import random
 from collections import deque
 
 class percept(nn.Module):
-    def __init__(self, observation_dim, feature_dim):
+    def __init__(self, observation_dim, feature_dim, conv=False):
         super(percept, self).__init__()
         self.observation_dim = observation_dim
         self.feature_dim = feature_dim
+        self.conv = conv
 
-        self.feature = nn.Sequential(
-            nn.Linear(self.observation_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, self.feature_dim),
-            nn.ReLU()
-        )
+        if not self.conv:
+            self.feature = nn.Sequential(
+                nn.Linear(self.observation_dim, 128),
+                nn.ReLU(),
+                nn.Linear(128, self.feature_dim),
+                nn.ReLU()
+            )
+        else:
+            self.feature = nn.Sequential(
+                nn.Conv2d(self.observation_dim[0], 32, 8, 4),
+                nn.ReLU(),
+                nn.Conv2d(32, 64, 4, 2),
+                nn.ReLU(),
+                nn.Conv2d(64, 64, 3, 1)
+            )
+            self.fc = nn.Linear(self.feature_size(), self.feature_dim)
+
+    def feature_size(self):
+        tmp = torch.zeros(1, * self.observation_dim)
+        return self.feature(tmp).view(1, -1).size(1)
 
     def forward(self, observation):
         feature = self.feature(observation)
+        if self.conv:
+            feature = F.relu(self.fc(feature.view(feature.size(0), -1)))
         return feature
 
 
@@ -116,7 +133,7 @@ class worker(nn.Module):
 
 
 class feudal_networks(nn.Module):
-    def __init__(self, observation_dim, feature_dim, k_dim, action_dim, dilation, horizon_c):
+    def __init__(self, observation_dim, feature_dim, k_dim, action_dim, dilation, horizon_c, conv=False):
         super(feudal_networks, self).__init__()
         self.feature_dim = feature_dim
         self.observation_dim = observation_dim
@@ -124,8 +141,9 @@ class feudal_networks(nn.Module):
         self.action_dim = action_dim
         self.dilation = dilation
         self.horizon_c = horizon_c
+        self.conv = conv
 
-        self.percept = percept(self.observation_dim, self.feature_dim)
+        self.percept = percept(self.observation_dim, self.feature_dim, self.conv)
         self.manager = manager(self.feature_dim, dilation)
         self.worker = worker(self.feature_dim, self.action_dim, self.k_dim)
         self.goal_horizon = deque(maxlen=self.horizon_c)
